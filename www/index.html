@@ -1,221 +1,641 @@
 <!DOCTYPE html>
-<html>
-    <head>
-        <title>PM2 panel</title>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <script type="text/javascript" src="/assets/js/vue.js"></script>
-        <script type="text/javascript" src="/assets/js/jquery.min.js"></script>
-        <link type="text/css" rel="stylesheet" href="/assets/css/normalize.css" />
-        <link type="text/css" rel="stylesheet" href="/assets/css/milligram.min.css" />
-        <link type="text/css" rel="stylesheet" href="/assets/css/style.css" />
-    </head>
-    <body>
-        <div class="container" id="app">
-            <br />
+<html lang="en" data-theme="dark">
+<head>
+    <title>PM2 Panel</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+</head>
+<body class="min-h-screen bg-base-200">
+    <div id="app">
+        <div class="drawer drawer-end">
+            <input id="add-drawer" type="checkbox" class="drawer-toggle" v-model="showAddDrawer" />
+            <div class="drawer-content">
+                <div class="navbar bg-base-100 shadow-lg sticky top-0 z-30">
+                    <div class="flex-1">
+                        <span class="text-xl font-bold ml-4">PM2 Panel</span>
+                    </div>
+                    <div class="flex-none gap-2">
+                        <div class="form-control">
+                            <label class="label cursor-pointer gap-2">
+                                <span class="label-text">Poll</span>
+                                <input type="checkbox" class="toggle toggle-primary" v-model="pollEnabled" />
+                            </label>
+                        </div>
+                        <div class="form-control w-24">
+                            <input type="number" class="input input-bordered input-sm" v-model.number="pollInterval" min="1" max="60" :disabled="!pollEnabled" />
+                        </div>
+                        <span class="text-xs opacity-60">sec</span>
+                        <button class="btn btn-ghost btn-sm" @click="fetchData">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" :class="{'animate-spin': loading}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                        </button>
+                        <div class="dropdown dropdown-end">
+                            <label tabindex="0" class="btn btn-ghost btn-circle avatar placeholder">
+                                <div class="bg-neutral text-neutral-content rounded-full w-10">
+                                    <span class="text-xl">A</span>
+                                </div>
+                            </label>
+                            <ul tabindex="0" class="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
+                                <li><a @click="showLoginModal = true" v-if="!isLoggedIn">Login</a></li>
+                                <li><a @click="logout" v-if="isLoggedIn">Logout</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
 
-            <div class="float-right">
-                <a id="refresh" class="button button-primary">  Refresh   </a>
-                <a href="/logout" class="button">  Logout   </a>
+                <div class="container mx-auto p-4" :class="{'opacity-30 blur-sm pointer-events-none': !isLoggedIn}">
+                    <div class="overflow-x-auto">
+                        <table class="table table-zebra w-full">
+                            <thead>
+                                <tr>
+                                    <th @click="sortBy('name')" class="cursor-pointer hover:bg-base-300">
+                                        App Name
+                                        <span v-if="sortKey === 'name'" class="ml-1">{{ sortOrder > 0 ? '↑' : '↓' }}</span>
+                                    </th>
+                                    <th @click="sortBy('pm_id')" class="cursor-pointer hover:bg-base-300">
+                                        ID
+                                        <span v-if="sortKey === 'pm_id'" class="ml-1">{{ sortOrder > 0 ? '↑' : '↓' }}</span>
+                                    </th>
+                                    <th @click="sortBy('pid')" class="cursor-pointer hover:bg-base-300">
+                                        PID
+                                        <span v-if="sortKey === 'pid'" class="ml-1">{{ sortOrder > 0 ? '↑' : '↓' }}</span>
+                                    </th>
+                                    <th @click="sortBy('status')" class="cursor-pointer hover:bg-base-300">
+                                        Status
+                                        <span v-if="sortKey === 'status'" class="ml-1">{{ sortOrder > 0 ? '↑' : '↓' }}</span>
+                                    </th>
+                                    <th>Restarts</th>
+                                    <th>Uptime</th>
+                                    <th @click="sortBy('cpu')" class="cursor-pointer hover:bg-base-300">
+                                        CPU
+                                        <span v-if="sortKey === 'cpu'" class="ml-1">{{ sortOrder > 0 ? '↑' : '↓' }}</span>
+                                    </th>
+                                    <th @click="sortBy('memory')" class="cursor-pointer hover:bg-base-300">
+                                        Memory
+                                        <span v-if="sortKey === 'memory'" class="ml-1">{{ sortOrder > 0 ? '↑' : '↓' }}</span>
+                                    </th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="process in sortedProcesses" :key="process.pm_id" class="hover">
+                                    <td class="font-medium">{{ process.name }}</td>
+                                    <td><span class="badge badge-ghost">{{ process.pm_id }}</span></td>
+                                    <td>{{ process.pid || '-' }}</td>
+                                    <td>
+                                        <span :class="getStatusClass(process.pm2_env.status)" class="badge gap-1">
+                                            <span v-if="process.pm2_env.status === 'online'" class="w-2 h-2 rounded-full bg-success animate-pulse"></span>
+                                            {{ process.pm2_env.status }}
+                                        </span>
+                                    </td>
+                                    <td>{{ process.pm2_env.restart_time }}</td>
+                                    <td>{{ formatUptime(now - process.pm2_env.pm_uptime) }}</td>
+                                    <td>
+                                        <div class="flex items-center gap-1">
+                                            <svg class="w-16 h-6" viewBox="0 0 100 20">
+                                                <polyline
+                                                    :points="getSparklinePoints(process.pm_id, 'cpu')"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    stroke-width="2"
+                                                    class="text-primary"
+                                                />
+                                            </svg>
+                                            <span class="text-xs w-12">{{ process.monit.cpu }}%</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="flex items-center gap-1">
+                                            <svg class="w-16 h-6" viewBox="0 0 100 20">
+                                                <polyline
+                                                    :points="getSparklinePoints(process.pm_id, 'memory')"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    stroke-width="2"
+                                                    class="text-secondary"
+                                                />
+                                            </svg>
+                                            <span class="text-xs w-16">{{ formatMemory(process.monit.memory) }}</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="dropdown dropdown-end">
+                                            <label tabindex="0" class="btn btn-ghost btn-xs">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                                                </svg>
+                                            </label>
+                                            <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-40">
+                                                <li><a @click="executeAction('restart', process.pm_id)">Restart</a></li>
+                                                <li v-if="process.pm2_env.status === 'online'"><a @click="executeAction('stop', process.pm_id)">Stop</a></li>
+                                                <li v-else><a @click="executeAction('start', process.pm_id)">Start</a></li>
+                                                <li><a @click="showLogs(process.pm_id)">Logs</a></li>
+                                                <li class="text-error"><a @click="confirmDelete(process.pm_id)">Delete</a></li>
+                                            </ul>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr v-if="loading">
+                                    <td colspan="9" class="text-center py-8">
+                                        <span class="loading loading-spinner loading-lg"></span>
+                                    </td>
+                                </tr>
+                                <tr v-if="!loading && processes.length === 0">
+                                    <td colspan="9" class="text-center py-8 opacity-60">No processes found</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="flex gap-2 mt-4">
+                        <label for="add-drawer" class="btn btn-primary" v-if="isLoggedIn">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                            Add Process
+                        </label>
+                        <button class="btn btn-outline" @click="saveProcesses" v-if="isLoggedIn">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                            </svg>
+                            Save Processes
+                        </button>
+                    </div>
+                </div>
             </div>
-            <h2>
-                Welcome to PM2 panel  
-            </h2>
-            <br />
-            <pre id="notification">
 
-            </pre>
-            <table>
-                <thead>
-                    <tr>
-                        <th>App name </th>
-                        <th>ID</th>
-                        <th>pid</th>
-                        <th>Status</th>
-                        <th>Restart</th>
-                        <th>Uptime</th>
-                        <th>CPU</th>
-                        <th>Mem</th>
-                        <th> Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr  v-for="process in processes">
-                        <td>{{process.name}}</td>
-                        <td>{{process.pm_id}}</td>
-                        <td>{{process.pid}}</td>
-                        <td>{{process.pm2_env.status}}</td>
-                        <td>{{process.pm2_env.restart_time}}</td>
-                        <td>{{  timing(now - process.pm2_env.pm_uptime)}}</td>
-                        <td>{{process.monit.cpu}}</td>
-                        <td>{{(process.monit.memory / (1024 * 1024 )).toFixed(2)}} MB</td>
-                        <td>
-                            <a :href="'/restart?id='+process.pm_id">  
-                                [ Restart now ]
-                        </a>
-                        &nbsp;
-                        <a :href="'/delete?id='+process.pm_id" class="delete">  
-                            [ Delete ]
-                    </a>
-                    <a :href="'/stop?id='+process.pm_id" v-if="process.pm2_env.status == 'online'">
-                        [ Stop ]
-                    </a>
-                    <a :href="'/start?id='+process.pm_id" v-else="">
-                        [ Start agin ]
-                    </a>
+            <div class="drawer-side z-40">
+                <label for="add-drawer" class="drawer-overlay"></label>
+                <div class="menu p-4 w-80 min-h-full bg-base-100 text-base-content">
+                    <h3 class="text-lg font-bold mb-4">Add New Process</h3>
+                    <form @submit.prevent="addProcess">
+                        <div class="form-control w-full">
+                            <label class="label"><span class="label-text">Task Path</span></label>
+                            <input type="text" class="input input-bordered w-full" v-model="choosedPath" placeholder="/path/to/script.js" required />
+                        </div>
+                        <button type="submit" class="btn btn-primary w-full mt-4" :disabled="!choosedPath">
+                            Add Process
+                        </button>
+                    </form>
 
-                    <a :href="'/log?id='+process.pm_id">  
-                        [ log ]
-                </a>
-            </td>
-        </tr>
-        <tr>
-            <td colspan="9" id="loader">
-                <img src="/assets/img/loader.gif" alt="[]" />
-            </td>
-        </tr>
+                    <div class="divider">File Browser</div>
+                    
+                    <div class="text-sm opacity-60 mb-2">Current: {{ currentDir }}</div>
+                    
+                    <ul class="menu bg-base-200 rounded-box max-h-96 overflow-y-auto">
+                        <li v-for="dir in folders" :key="dir.path">
+                            <div class="flex items-center justify-between">
+                                <span class="flex items-center gap-2">
+                                    <svg v-if="dir.name !== '..'" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                    </svg>
+                                    <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                                    </svg>
+                                    {{ dir.name }}
+                                </span>
+                                <div class="flex gap-1">
+                                    <button class="btn btn-xs btn-ghost" @click="selectPath(dir.path)" v-if="dir.name !== '..'">
+                                        Select
+                                    </button>
+                                    <button class="btn btn-xs btn-ghost" @click="exploreFolder(dir.path + '/')">
+                                        Open
+                                    </button>
+                                </div>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
 
-    </tbody>
-</table>
-<br />
-<br />
-<div class="button button-primary" id="frmCrtl">
-    Show/Hide add prcocess form
-</div>
-&nbsp;
-&nbsp;
-<a href="/dump" class="button"> 
-    Save current process
-</a>
-<br />
+        <dialog id="login_modal" class="modal" :class="{'modal-open': showLoginModal}">
+            <div class="modal-box">
+                <h3 class="font-bold text-lg mb-4">Login to PM2 Panel</h3>
+                <form @submit.prevent="login">
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text">Username</span></label>
+                        <input type="text" class="input input-bordered w-full" v-model="loginForm.username" required />
+                    </div>
+                    <div class="form-control w-full mt-2">
+                        <label class="label"><span class="label-text">Password</span></label>
+                        <input type="password" class="input input-bordered w-full" v-model="loginForm.password" required />
+                    </div>
+                    <div class="form-control mt-2">
+                        <label class="label cursor-pointer justify-start gap-2">
+                            <input type="checkbox" class="checkbox checkbox-sm" v-model="loginForm.rememberMe" />
+                            <span class="label-text">Remember me</span>
+                        </label>
+                    </div>
+                    <div class="modal-action">
+                        <button type="button" class="btn btn-ghost" @click="showLoginModal = false">Cancel</button>
+                        <button type="submit" class="btn btn-primary" :disabled="loginLoading">
+                            <span v-if="loginLoading" class="loading loading-spinner loading-xs"></span>
+                            Login
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <form method="dialog" class="modal-backdrop bg-black/60 backdrop-blur-sm">
+                <button @click="showLoginModal = false">close</button>
+            </form>
+        </dialog>
 
+        <dialog id="logs_modal" class="modal" :class="{'modal-open': showLogsModal}">
+            <div class="modal-box max-w-4xl">
+                <h3 class="font-bold text-lg mb-4">Logs: {{ logsProcessName }}</h3>
+                <pre class="bg-base-200 p-4 rounded-lg max-h-96 overflow-auto text-xs font-mono">{{ logsContent }}</pre>
+                <div class="modal-action">
+                    <button class="btn" @click="showLogsModal = false">Close</button>
+                </div>
+            </div>
+            <form method="dialog" class="modal-backdrop">
+                <button @click="showLogsModal = false">close</button>
+            </form>
+        </dialog>
 
-<form action="/addProccess" method="POST" class="row" id="addForm">
-    <div class="column">
-        <label> 
-            Task path:
-            <input type="text" name="path" v-model="choosedPath" />
-        </label>
-        <input type="submit" value="Add process now" class="button" />
-
+        <div class="toast toast-end">
+            <div v-for="(toast, index) in toasts" :key="index" :class="'alert alert-' + toast.type">
+                <span>{{ toast.message }}</span>
+                <button class="btn btn-ghost btn-xs" @click="removeToast(index)">✕</button>
+            </div>
+        </div>
     </div>
-    <div class="column">
-        list of files:
-        <br />
 
-        (Current path: <b> {{currentDir}} </b>) 
+    <script>
+    const { createApp, ref, computed, onMounted, onUnmounted, watch } = Vue;
 
-        <ul id="folder-list">
-            <li v-for="dir in folders"  >
-                {{dir.name}}
+    createApp({
+        setup() {
+            const processes = ref([]);
+            const folders = ref([]);
+            const currentDir = ref('/');
+            const choosedPath = ref('');
+            const now = ref(Date.now());
+            const loading = ref(true);
+            const isLoggedIn = ref(false);
+            const showLoginModal = ref(false);
+            const showAddDrawer = ref(false);
+            const showLogsModal = ref(false);
+            const logsContent = ref('');
+            const logsProcessName = ref('');
+            const loginLoading = ref(false);
+            const toasts = ref([]);
+            const pollEnabled = ref(true);
+            const pollInterval = ref(3);
+            const sortKey = ref('pm_id');
+            const sortOrder = ref(1);
+            const metricsHistory = ref({});
+            const HISTORY_LENGTH = 20;
 
-                <span v-if="dir.name !== '..'">
-                    <a class="button button-small button-outline float-right explore" :href="dir.path+'/'">
-                       explore
-                </a>
+            const loginForm = ref({
+                username: '',
+                password: '',
+                rememberMe: false
+            });
 
-                <a class="button float-right select  button-small button-outline" :href="dir.path">
-                    select
-                </a>
-            </span>
-            <span v-else>
-                <a class="button float-right  button-small button-outline"  :href="dir.path+'/'" id="back">
-                   explore
-            </a>
-        </span>
-        <div class="clearfix"></div>
-    </li>
-</ul>
+            let pollTimer = null;
 
-</div>
+            const sortedProcesses = computed(() => {
+                const sorted = [...processes.value].sort((a, b) => {
+                    let aVal, bVal;
+                    switch (sortKey.value) {
+                        case 'name':
+                            aVal = a.name;
+                            bVal = b.name;
+                            break;
+                        case 'pm_id':
+                            aVal = a.pm_id;
+                            bVal = b.pm_id;
+                            break;
+                        case 'pid':
+                            aVal = a.pid || 0;
+                            bVal = b.pid || 0;
+                            break;
+                        case 'status':
+                            aVal = a.pm2_env.status;
+                            bVal = b.pm2_env.status;
+                            break;
+                        case 'cpu':
+                            aVal = a.monit.cpu;
+                            bVal = b.monit.cpu;
+                            break;
+                        case 'memory':
+                            aVal = a.monit.memory;
+                            bVal = b.monit.memory;
+                            break;
+                        default:
+                            return 0;
+                    }
+                    if (typeof aVal === 'string') {
+                        return sortOrder.value * aVal.localeCompare(bVal);
+                    }
+                    return sortOrder.value * (aVal - bVal);
+                });
+                return sorted;
+            });
 
-</form>
-<a href="https://github.com/4xmen/pm2panel"> PM2 panel copyright &copy; 2017 &nbsp; | &nbsp;&nbsp; A1Gard@4xmen   </a>
-<br />
-<br />
-</div>
-<script type="text/javascript">
-    function GetData() {
-        $.get('/getProccess', function (e) {
-            var newDate = new Date();
-            if (Array.isArray(e) !== true) {
-                // if catch mean is session expired
-                location.reload();
-                return false;
-            }
-            vue.processes = e;
-            // set now for calcalte uptime
-            vue.now = Math.floor(newDate.getTime());
-            $("#loader").slideUp(100);
-        }).fail(function () {
-            alert('Error on get Data: Maybe pm2 not installed, or on runned user has not access to get data.'); // or whatever
-            $("#loader").slideUp(100);
-        });
+            const checkAuth = async () => {
+                try {
+                    const res = await fetch('/getProccess');
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (Array.isArray(data)) {
+                            isLoggedIn.value = true;
+                        }
+                    }
+                } catch (e) {
+                    isLoggedIn.value = false;
+                }
+            };
 
-        $("#addForm").slideUp(50);
-        $.get('/folder', function (e) {
-            vue.folders = e;
-        });
-        $.get('/notification', function (e) {
-            if (e !== '-') {
-                $("#notification").text(e).slideDown(300);
-            }
-        });
-    }
-    var now = 0;
-    vue = new Vue({
-        el: '#app',
-        data: {
-            processes: [],
-            folders: [],
-            now: 0,
-            currentDir: '/',
-            choosedPath: '',
-        },
-        methods: {
-            timing: function (sec) {
-                var date = new Date(null);
-                date.setSeconds(Math.floor(sec / 1000)); // specify value for SECONDS here
-                return  date.toISOString().substr(11, 8);
-            }
+            const fetchData = async () => {
+                if (!isLoggedIn.value) {
+                    loading.value = false;
+                    return;
+                }
+                
+                loading.value = true;
+                try {
+                    const res = await fetch('/getProccess');
+                    if (!res.ok) {
+                        if (res.status === 401 || res.status === 302) {
+                            isLoggedIn.value = false;
+                            showLoginModal.value = true;
+                        }
+                        return;
+                    }
+                    const data = await res.json();
+                    if (Array.isArray(data)) {
+                        processes.value = data;
+                        now.value = Date.now();
+                        updateMetricsHistory(data);
+                    }
+                } catch (e) {
+                    showToast('Failed to fetch processes: ' + e.message, 'error');
+                } finally {
+                    loading.value = false;
+                }
+            };
+
+            const fetchFolders = async (path = '') => {
+                try {
+                    const url = path ? `/folder?path=${encodeURIComponent(path)}` : '/folder';
+                    const res = await fetch(url);
+                    if (res.ok) {
+                        folders.value = await res.json();
+                    }
+                } catch (e) {
+                    console.error('Failed to fetch folders:', e);
+                }
+            };
+
+            const updateMetricsHistory = (data) => {
+                data.forEach(p => {
+                    if (!metricsHistory.value[p.pm_id]) {
+                        metricsHistory.value[p.pm_id] = { cpu: [], memory: [] };
+                    }
+                    metricsHistory.value[p.pm_id].cpu.push(p.monit.cpu);
+                    metricsHistory.value[p.pm_id].memory.push(p.monit.memory);
+                    if (metricsHistory.value[p.pm_id].cpu.length > HISTORY_LENGTH) {
+                        metricsHistory.value[p.pm_id].cpu.shift();
+                        metricsHistory.value[p.pm_id].memory.shift();
+                    }
+                });
+            };
+
+            const getSparklinePoints = (pmId, type) => {
+                const history = metricsHistory.value[pmId];
+                if (!history || history[type].length < 2) return '0,10 100,10';
+                
+                const values = history[type];
+                const maxVal = Math.max(...values, 1);
+                const points = values.map((v, i) => {
+                    const x = (i / (HISTORY_LENGTH - 1)) * 100;
+                    const y = 20 - (v / maxVal) * 18;
+                    return `${x},${y}`;
+                });
+                return points.join(' ');
+            };
+
+            const startPolling = () => {
+                if (pollTimer) clearInterval(pollTimer);
+                if (pollEnabled.value) {
+                    pollTimer = setInterval(fetchData, pollInterval.value * 1000);
+                }
+            };
+
+            watch([pollEnabled, pollInterval], () => {
+                startPolling();
+            });
+
+            const sortBy = (key) => {
+                if (sortKey.value === key) {
+                    sortOrder.value = -sortOrder.value;
+                } else {
+                    sortKey.value = key;
+                    sortOrder.value = 1;
+                }
+            };
+
+            const login = async () => {
+                loginLoading.value = true;
+                try {
+                    const res = await fetch('/loginCheck', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({
+                            username: loginForm.value.username,
+                            passwd: loginForm.value.password,
+                            remember: loginForm.value.rememberMe ? '1' : '0'
+                        })
+                    });
+                    if (res.ok) {
+                        isLoggedIn.value = true;
+                        showLoginModal.value = false;
+                        loginForm.value = { username: '', password: '', rememberMe: false };
+                        fetchData();
+                        fetchFolders();
+                    } else {
+                        showToast('Invalid credentials', 'error');
+                    }
+                } catch (e) {
+                    showToast('Login failed: ' + e.message, 'error');
+                } finally {
+                    loginLoading.value = false;
+                }
+            };
+
+            const logout = async () => {
+                await fetch('/logout');
+                isLoggedIn.value = false;
+                processes.value = [];
+            };
+
+            const executeAction = async (action, id) => {
+                try {
+                    const res = await fetch(`/${action}?id=${id}`);
+                    const text = await res.text();
+                    showToast(`${action} command sent`, 'success');
+                    setTimeout(fetchData, 500);
+                } catch (e) {
+                    showToast(`Failed to ${action}: ${e.message}`, 'error');
+                }
+            };
+
+            const confirmDelete = async (id) => {
+                if (confirm('Are you sure you want to delete this process?')) {
+                    await executeAction('delete', id);
+                }
+            };
+
+            const showLogs = async (id) => {
+                try {
+                    const res = await fetch(`/log?id=${id}`);
+                    logsContent.value = await res.text();
+                    const proc = processes.value.find(p => p.pm_id === id);
+                    logsProcessName.value = proc ? proc.name : `Process ${id}`;
+                    showLogsModal.value = true;
+                } catch (e) {
+                    showToast('Failed to fetch logs', 'error');
+                }
+            };
+
+            const addProcess = async () => {
+                if (!choosedPath.value) return;
+                try {
+                    const res = await fetch('/addProccess', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: `path=${encodeURIComponent(choosedPath.value)}`
+                    });
+                    if (res.ok) {
+                        showToast('Process added successfully', 'success');
+                        choosedPath.value = '';
+                        showAddDrawer.value = false;
+                        setTimeout(fetchData, 500);
+                    }
+                } catch (e) {
+                    showToast('Failed to add process: ' + e.message, 'error');
+                }
+            };
+
+            const saveProcesses = async () => {
+                try {
+                    await fetch('/dump');
+                    showToast('Processes saved', 'success');
+                } catch (e) {
+                    showToast('Failed to save: ' + e.message, 'error');
+                }
+            };
+
+            const selectPath = (path) => {
+                choosedPath.value = path;
+            };
+
+            const exploreFolder = async (path) => {
+                currentDir.value = path;
+                await fetchFolders(path);
+            };
+
+            const getStatusClass = (status) => {
+                switch (status) {
+                    case 'online': return 'badge-success';
+                    case 'stopping': case 'stopped': return 'badge-warning';
+                    case 'errored': return 'badge-error';
+                    default: return 'badge-ghost';
+                }
+            };
+
+            const formatUptime = (ms) => {
+                const sec = Math.floor(ms / 1000);
+                const h = Math.floor(sec / 3600);
+                const m = Math.floor((sec % 3600) / 60);
+                const s = sec % 60;
+                return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            };
+
+            const formatMemory = (bytes) => {
+                return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+            };
+
+            const showToast = (message, type = 'info') => {
+                toasts.value.push({ message, type });
+                setTimeout(() => toasts.value.shift(), 5000);
+            };
+
+            const removeToast = (index) => {
+                toasts.value.splice(index, 1);
+            };
+
+            onMounted(async () => {
+                await checkAuth();
+                if (isLoggedIn.value) {
+                    await Promise.all([fetchData(), fetchFolders()]);
+                    startPolling();
+                } else {
+                    showLoginModal.value = true;
+                }
+            });
+
+            onUnmounted(() => {
+                if (pollTimer) clearInterval(pollTimer);
+            });
+
+            return {
+                processes,
+                folders,
+                currentDir,
+                choosedPath,
+                now,
+                loading,
+                isLoggedIn,
+                showLoginModal,
+                showAddDrawer,
+                showLogsModal,
+                logsContent,
+                logsProcessName,
+                loginLoading,
+                loginForm,
+                toasts,
+                pollEnabled,
+                pollInterval,
+                sortedProcesses,
+                sortKey,
+                sortOrder,
+                sortBy,
+                fetchData,
+                fetchFolders,
+                login,
+                logout,
+                executeAction,
+                confirmDelete,
+                showLogs,
+                addProcess,
+                saveProcesses,
+                selectPath,
+                exploreFolder,
+                getStatusClass,
+                formatUptime,
+                formatMemory,
+                getSparklinePoints,
+                showToast,
+                removeToast
+            };
         }
-    });
-    $(function () {
-        GetData();
-        $("#refresh").click(function () {
-            $("#loader").slideDown(100);
-            GetData();
-        });
+    }).mount('#app');
+    </script>
 
-        $(document).on('click', ".select", function () {
-            vue.choosedPath = $(this).attr('href');
-            return false;
-        });
-        $(document).on('click', ".explore", function () {
-            vue.currentDir = $(this).attr('href');
-            $.get('/folder', {path: $(this).attr('href')}, function (e) {
-                vue.folders = e;
-            });
-            return false;
-        });
-        $(document).on('click', "#back", function () {
-            vue.currentDir = $(this).attr('href');
-            $.get('/folder', {path: $(this).attr('href')}, function (e) {
-                vue.folders = e;
-            });
-            return false;
-        });
-
-        $("#frmCrtl").click(function () {
-            $("#addForm").slideToggle(300);
-        });
-
-        $(document).on('click', '.delete', function () {
-            if (!confirm('Are you sure to delete this process ?')) {
-                return false;
-            }
-        });
-    });
-</script>
+    <footer class="footer footer-center p-4 text-base-content opacity-60 text-sm absolute bottom-0 w-full">
+        <div>
+            <a href="https://github.com/4xmen/pm2panel" target="_blank">PM2 Panel</a>
+            <span>·</span>
+            <span>Fork with ❤️</span>
+        </div>
+    </footer>
 </body>
 </html>

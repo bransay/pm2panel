@@ -1,46 +1,51 @@
 <!DOCTYPE html>
-<html>
-    <head>
-         <title>Login | PM2 panel</title>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <script type="text/javascript" src="/assets/js/vue.js"></script>
-        <script type="text/javascript" src="/assets/js/jquery.min.js"></script>
-        <link type="text/css" rel="stylesheet" href="/assets/css/normalize.css" />
-        <link type="text/css" rel="stylesheet" href="/assets/css/milligram.min.css" />
-        <link type="text/css" rel="stylesheet" href="/assets/css/style.css" />
-    </head>
-    <body>
-        <div id="login">
-            <h1>
-                Login to Pm2 panel
-            </h1>
+<html lang="en" data-theme="dark">
+<head>
+    <title>Login | PM2 Panel</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-base-200 flex items-center justify-center">
+    <div class="card bg-base-100 shadow-xl w-96">
+        <div class="card-body">
+            <h2 class="card-title text-2xl mb-4 justify-center">PM2 Panel</h2>
+            <p class="text-center text-sm opacity-60 mb-4">Sign in to manage your processes</p>
+            
+            <div id="error" class="alert alert-error hidden">
+                <span id="error-msg"></span>
+            </div>
+            
             <form method="post" action="/loginCheck">
-                <p class="err" style="display:none;color:red;margin:2em auto 1.5em auto;text-align:center;"></p>
-                <fieldset>
-                    <label for="user">Username</label>
-                    <input type="text" placeholder="Username" id="user" name="username">
-
-                    <label for="pass">Password</label>
-                    <input type="password" placeholder="Password" id="pass" name="passwd">
-
-                    <input class="button-primary" type="submit" value="Send">
-                </fieldset>
+                <div class="form-control w-full">
+                    <label class="label"><span class="label-text">Username</span></label>
+                    <input type="text" name="username" placeholder="Enter username" class="input input-bordered w-full" required />
+                </div>
+                <div class="form-control w-full mt-2">
+                    <label class="label"><span class="label-text">Password</span></label>
+                    <input type="password" name="passwd" placeholder="Enter password" class="input input-bordered w-full" required />
+                </div>
+                <div class="form-control mt-2">
+                    <label class="label cursor-pointer justify-start gap-2">
+                        <input type="checkbox" name="remember" value="1" class="checkbox checkbox-sm" />
+                        <span class="label-text">Remember me</span>
+                    </label>
+                </div>
+                <div class="form-control mt-6">
+                    <button type="submit" class="btn btn-primary">Login</button>
+                </div>
             </form>
-
         </div>
-
-        <script type="text/javascript">
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('err') != null) {
-                if (urlParams.get('err') == 'invalid_credentials') {
-                    document.querySelector('#login form p.err').innerText = 'Invalid credentials where provided.';
-                } else {
-                    document.querySelector('#login form p.err').innerText = 'A system error occured.';
-                }
-
-                document.querySelector('#login form p.err').style.display = 'block';
-            }
-        </script>
-    </body>
+    </div>
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const err = params.get('err');
+        if (err) {
+            document.getElementById('error').classList.remove('hidden');
+            document.getElementById('error-msg').textContent = 
+                err === 'invalid_credentials' ? 'Invalid username or password' : 'A system error occurred';
+        }
+    </script>
+</body>
 </html>
