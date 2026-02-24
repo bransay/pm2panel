@@ -353,13 +353,13 @@
                 }
             };
 
-            const fetchData = async () => {
+            const fetchData = async (silent = false) => {
                 if (!isLoggedIn.value) {
-                    loading.value = false;
+                    if (!silent) loading.value = false;
                     return;
                 }
                 
-                loading.value = true;
+                if (!silent) loading.value = true;
                 try {
                     const res = await fetch('/getProccess');
                     if (!res.ok) {
@@ -376,9 +376,9 @@
                         updateMetricsHistory(data);
                     }
                 } catch (e) {
-                    showToast('Failed to fetch processes: ' + e.message, 'error');
+                    if (!silent) showToast('Failed to fetch processes: ' + e.message, 'error');
                 } finally {
-                    loading.value = false;
+                    if (!silent) loading.value = false;
                 }
             };
 
@@ -425,7 +425,7 @@
             const startPolling = () => {
                 if (pollTimer) clearInterval(pollTimer);
                 if (pollEnabled.value) {
-                    pollTimer = setInterval(fetchData, pollInterval.value * 1000);
+                    pollTimer = setInterval(() => fetchData(true), pollInterval.value * 1000);
                 }
             };
 
