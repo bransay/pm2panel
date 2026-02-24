@@ -86,7 +86,7 @@
                                 <div class="grid grid-cols-2 gap-2 mt-2 text-sm">
                                     <div><span class="opacity-60">ID:</span> {{ process.pm_id }}</div>
                                     <div><span class="opacity-60">PID:</span> {{ process.pid || '-' }}</div>
-                                    <div><span class="opacity-60">Uptime:</span> {{ formatUptime(now - process.pm2_env.pm_uptime) }}</div>
+                                    <div><span class="opacity-60">Uptime:</span> {{ process.pm2_env.status === 'online' ? formatUptime(now - process.pm2_env.pm_uptime) : '-' }}</div>
                                     <div><span class="opacity-60">Restarts:</span> {{ process.pm2_env.restart_time }}</div>
                                 </div>
                                 <div class="flex gap-4 mt-2 text-sm">
@@ -155,7 +155,7 @@
                                         </span>
                                     </td>
                                     <td>{{ process.pm2_env.restart_time }}</td>
-                                    <td>{{ formatUptime(now - process.pm2_env.pm_uptime) }}</td>
+                                    <td>{{ process.pm2_env.status === 'online' ? formatUptime(now - process.pm2_env.pm_uptime) : '-' }}</td>
                                     <td>
                                         <div class="flex items-center gap-1">
                                             <svg class="w-16 h-6" viewBox="0 0 100 20">
