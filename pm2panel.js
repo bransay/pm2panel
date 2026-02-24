@@ -1,12 +1,12 @@
-
 //##############################################################################
 //                             config panel
 //##############################################################################
 const PORT = 3001;
-const PAM_AUTH = false; // if set to true, USER and PASS won't be used
+const PAM_AUTH = false;
 const USER = 'admin';
 const PASS = 'admin';
-const SESSTION_AGE = 10 * 60000; // 10 minutes
+const SESSION_AGE = 10 * 60 * 1000;
+const SESSION_AGE_REMEMBER = 7 * 24 * 60 * 60 * 1000;
 
 //##############################################################################
 //                             inital packages
@@ -21,431 +21,249 @@ const { pamAuthenticate, pamErrors } = require('node-linux-pam');
 
 var session = require('express-session');
 
-// Use the session middleware
-app.use(session({secret: 'keyboard cat', cookie: {maxAge: SESSTION_AGE}}));
+app.use(session({
+    secret: 'keyboard cat',
+    cookie: { maxAge: SESSION_AGE },
+    resave: false,
+    saveUninitialized: false
+}));
 
-// add assets path
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
+app.use(express.static(path.join(__dirname, 'www')));
 
-// for parse post
-app.use(express.json());       // to support JSON-encoded bodies
-app.use(express.urlencoded()); // to support URL-encoded bodies
-//
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+//##############################################################################
+//                             auth middleware
+//##############################################################################
+
+function requireAuth(req, res, next) {
+    if (req.session.islogin) {
+        return next();
+    }
+    if (req.xhr || req.headers.accept?.indexOf('json') > -1 || req.path.startsWith('/api')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    res.redirect('/');
+}
+
 //##############################################################################
 //                             rounting urls
 //##############################################################################
 
 app.get('/', function (req, res) {
-    // check is login
-    if (req.session.islogin) {
-        // show index page
-        res.sendFile(path.join(__dirname, 'www/index.html'));
-    } else {
-        // redirect to login page
-        res.writeHead(302, {
-            'Location': '/login'
-        });
-        res.end();
-    }
-
+    res.sendFile(path.join(__dirname, 'www/index.html'));
 });
 
 app.get('/login', function (req, res) {
-
-    // render login page
-    res.sendFile(path.join(__dirname, 'www/login.html'));
+    res.redirect('/');
 });
 
 app.post('/loginCheck', function (req, res) {
-    // check if local or pam authentication is requested
+    const remember = req.body.remember === '1' || req.body.remember === true;
+    
+    const handleSuccess = () => {
+        req.session.islogin = true;
+        if (remember) {
+            req.session.cookie.maxAge = SESSION_AGE_REMEMBER;
+        }
+        if (req.xhr || req.headers.accept?.indexOf('json') > -1) {
+            return res.json({ success: true });
+        }
+        res.redirect('/');
+    };
+
+    const handleFailure = () => {
+        if (req.xhr || req.headers.accept?.indexOf('json') > -1) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+        res.redirect('/');
+    };
+
     if (PAM_AUTH) {
         pamAuthenticate({
             username: req.body.username,
             password: req.body.passwd
         }, (err, code) => {
             if (!err) {
-                // login process
-                req.session.islogin = true;
-                // redirect to panel
-                res.writeHead(302, {
-                    'Location': '/'
-                });
+                handleSuccess();
             } else {
-                // user or password incorrect go back to login and logging PAM code if not 7 (invalid credentials)
                 if (code != 7) console.log('Unsuccessful PAM authentication, code: ' + code);
-                res.writeHead(302, {
-                    'Location': '/login?err=' + (code == 7 ? 'invalid_credentials' : 'system')
-
-                });
+                handleFailure();
             }
-
-            res.end();
         });
     } else {
-        // check username and password by local authentication
-        if (req.body.username === USER && req.body.passwd == PASS) {
-            // login process
-            req.session.islogin = true;
-            // redirect to panel
-            res.writeHead(302, {
-                'Location': '/'
-            });
+        if (req.body.username === USER && req.body.passwd === PASS) {
+            handleSuccess();
         } else {
-            // user or password incrrect go back to login
-            res.writeHead(302, {
-                'Location': '/login?err=invalid_credentials'
-
-            });
+            handleFailure();
         }
-        res.end();
     }
 });
 
-
-
-app.get('/getProccess', function (req, res) {
-    // check is user logined
-    if (!req.session.islogin) {
-        res.writeHead(302, {
-            'Location': '/login'
-        });
-        res.end();
-
-    } else {
-        // send json header
-        res.writeHead(200, {
-            'Content-Type': 'application/json'
-        });
-        // get json list from the json
-        exec("pm2 jlist", (error, stdout, stderr) => {
-            //do whatever here
-            res.write(stdout);
-            res.end();
-        });
-    }
+app.get('/getProccess', requireAuth, function (req, res) {
+    res.setHeader('Content-Type', 'application/json');
+    exec("pm2 jlist", (error, stdout, stderr) => {
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+        try {
+            const data = JSON.parse(stdout);
+            res.json(data);
+        } catch (e) {
+            res.status(500).json({ error: 'Failed to parse PM2 output' });
+        }
+    });
 });
-app.post('/addProccess', function (req, res) {
-    // check is user logined
-    if (!req.session.islogin) {
-        res.writeHead(302, {
-            'Location': '/login'
-        });
-        res.end();
 
-    } else {
+app.post('/addProccess', requireAuth, function (req, res) {
+    if (!req.body.path) {
+        return res.status(400).json({ error: 'Path is required' });
+    }
 
-        // get json list from the json
-        if (req.body.path === undefined) {
-            res.writeHead(302, {
-                'Location': '/'
-            });
-            res.end();
-            return false;
+    if (!fs.existsSync(req.body.path)) {
+        return res.status(400).json({ error: 'File does not exist' });
+    }
+
+    exec('pm2 start "' + req.body.path + '"', (error, stdout, stderr) => {
+        if (error) {
+            return res.json({ success: false, message: error.message + stderr });
+        }
+        res.json({ success: true, message: 'Process started successfully' });
+    });
+});
+
+app.get('/restart', requireAuth, function (req, res) {
+    if (!req.query.id) {
+        return res.status(400).json({ error: 'ID is required' });
+    }
+
+    exec("pm2 restart " + req.query.id, (error, stdout, stderr) => {
+        if (error) {
+            return res.json({ success: false, message: error.message + stderr });
+        }
+        res.json({ success: true, message: 'Process restarted' });
+    });
+});
+
+app.get('/start', requireAuth, function (req, res) {
+    if (!req.query.id) {
+        return res.status(400).json({ error: 'ID is required' });
+    }
+
+    exec("pm2 start " + req.query.id, (error, stdout, stderr) => {
+        if (error) {
+            return res.json({ success: false, message: error.message + stderr });
+        }
+        res.json({ success: true, message: 'Process started' });
+    });
+});
+
+app.get('/stop', requireAuth, function (req, res) {
+    if (!req.query.id) {
+        return res.status(400).json({ error: 'ID is required' });
+    }
+
+    exec("pm2 stop " + req.query.id, (error, stdout, stderr) => {
+        if (error) {
+            return res.json({ success: false, message: error.message + stderr });
+        }
+        res.json({ success: true, message: 'Process stopped' });
+    });
+});
+
+app.get('/delete', requireAuth, function (req, res) {
+    if (!req.query.id) {
+        return res.status(400).json({ error: 'ID is required' });
+    }
+
+    exec("pm2 delete " + req.query.id, (error, stdout, stderr) => {
+        if (error) {
+            return res.json({ success: false, message: error.message + stderr });
+        }
+        res.json({ success: true, message: 'Process deleted' });
+    });
+});
+
+app.get('/dump', requireAuth, function (req, res) {
+    exec("pm2 save", (error, stdout, stderr) => {
+        if (error) {
+            return res.json({ success: false, message: error.message + stderr });
+        }
+        res.json({ success: true, message: 'Processes saved' });
+    });
+});
+
+app.get('/notification', requireAuth, function (req, res) {
+    if (!req.session.notication) {
+        return res.send('-');
+    }
+    const message = req.session.notication;
+    delete req.session.notication;
+    res.send(message);
+});
+
+app.get('/folder', requireAuth, function (req, res) {
+    const chosenPath = req.query.path || '/';
+    
+    res.setHeader('Content-Type', 'application/json');
+
+    if (!fs.existsSync(chosenPath)) {
+        return res.json([]);
+    }
+
+    fs.readdir(chosenPath, (err, files) => {
+        if (err) {
+            return res.json([]);
         }
 
-        // check is file exists
-        if (fs.existsSync(req.body.path)) {
-            // add process
-            exec('pm2 start "' + req.body.path + '"', (error, stdout, stderr) => {
-                // save notificarion
-                // req.session.notication = error + '\n--------\n' + stdout + '\n--------\n' + stderr;
-                if (error != null) {
-                    req.session.notication = error + stderr;
-                } else {
-                    req.session.notication = 'Process:' + req.body.path + ' started successfully';
-                }
-                res.writeHead(302, {
-                    'Location': '/'
+        const lst = [];
+        const normalizedPath = chosenPath.replace(/\/+$/, '') + '/';
+        const parentPath = path.join(chosenPath, '..');
+        lst.push({ name: '..', path: parentPath });
+
+        files.forEach(file => {
+            try {
+                const fullPath = path.join(chosenPath, file);
+                const stats = fs.statSync(fullPath);
+                lst.push({
+                    name: file,
+                    path: fullPath,
+                    isDirectory: stats.isDirectory()
                 });
-                res.end();
-                return true;
-            });
-        } else {
-
-            // go back
-            res.writeHead(302, {
-                'Location': '/'
-            });
-            res.end();
-            return false;
-        }
-
-    }
-});
-
-app.get('/restart', function (req, res) {
-    // send json header
-    if (!req.session.islogin) {
-        res.writeHead(302, {
-            'Location': '/login'
-        });
-        res.end();
-
-    } else {
-        // check id exits
-        if (req.query.id) {
-            // restart the process
-            exec("pm2 restart " + req.query.id, (error, stdout, stderr) => {
-                res.writeHead(302, {
-                    'Location': '/'
-                });
-                // req.session.notication = error + '\n--------\n' + stdout + '\n--------\n' + stderr;
-                if (error != null) {
-                    req.session.notication = error + stderr;
-                } else {
-                    req.session.notication = 'Process by id :' + req.query.id + ' restarted successfully';
-                }
-                res.end();
-            });
-
-        }
-
-    }
-});
-
-app.get('/start', function (req, res) {
-    // send json header
-    if (!req.session.islogin) {
-        res.writeHead(302, {
-            'Location': '/login'
-        });
-        res.end();
-
-    } else {
-        // check id exits
-        if (req.query.id) {
-            // start the process
-            exec("pm2 start " + req.query.id, (error, stdout, stderr) => {
-                res.writeHead(302, {
-                    'Location': '/'
-                });
-                // req.session.notication = error + '\n--------\n' + stdout + '\n--------\n' + stderr;
-                if (error != null) {
-                    req.session.notication = error + stderr;
-                } else {
-                    req.session.notication = 'Process by id :' + req.query.id + ' started successfully';
-                }
-                res.end();
-            });
-
-        }
-
-    }
-});
-
-app.get('/stop', function (req, res) {
-    // send json header
-    if (!req.session.islogin) {
-        res.writeHead(302, {
-            'Location': '/login'
-        });
-        res.end();
-
-    } else {
-        // check id exits
-        if (req.query.id) {
-            // stop the process
-            exec("pm2 stop " + req.query.id, (error, stdout, stderr) => {
-                res.writeHead(302, {
-                    'Location': '/'
-                });
-                // req.session.notication = error + '\n--------\n' + stdout + '\n--------\n' + stderr;
-                if (error != null) {
-                    req.session.notication = error + stderr;
-                } else {
-                    req.session.notication = 'Process by id :' + req.query.id + ' stopped successfully';
-                }
-                res.end();
-            });
-
-        }
-
-    }
-});
-
-app.get('/delete', function (req, res) {
-    // send json header
-    if (!req.session.islogin) {
-        res.writeHead(302, {
-            'Location': '/login'
-        });
-        res.end();
-
-    } else {
-        // check id exits
-        if (req.query.id) {
-            // delete the process
-            exec("pm2 delete " + req.query.id, (error, stdout, stderr) => {
-                res.writeHead(302, {
-                    'Location': '/'
-                });
-                // req.session.notication = error + '\n--------\n' + stdout + '\n--------\n' + stderr;
-                if (error != null) {
-                    req.session.notication = error + stderr;
-                } else {
-                    req.session.notication = 'Process by id :' + req.query.id + ' deleted successfully';
-                }
-                res.end();
-            });
-
-        }
-
-    }
-});
-
-app.get('/dump', function (req, res) {
-    // send json header
-    if (!req.session.islogin) {
-        res.writeHead(302, {
-            'Location': '/login'
-        });
-        res.end();
-
-    } else {
-        // save process
-        exec("pm2 save", (error, stdout, stderr) => {
-            res.writeHead(302, {
-                'Location': '/'
-            });
-            //req.session.notication = error + '\n--------\n' + stdout + '\n--------\n' + stderr;
-            if (error != null) {
-                req.session.notication = error + stderr;
-            } else {
-                req.session.notication = 'current procceses dumped ( saved ) successfully';
+            } catch (e) {
+                lst.push({ name: file, path: normalizedPath + file, isDirectory: false });
             }
-            res.end();
         });
 
-
-    }
+        res.json(lst);
+    });
 });
-
-app.get('/notification', function (req, res) {
-    // send json header
-    if (!req.session.islogin) {
-        res.writeHead(302, {
-            'Location': '/login'
-        });
-        res.end();
-        return false;
-    } else {
-        if (!req.session.notication) {
-            res.write('-');
-        } else {
-            var message = req.session.notication;
-            delete req.session.notication;
-            res.write(message);
-        }
-        res.end();
-    }
-});
-
-
-
-/// get folder list
-app.get('/folder', function (req, res) {
-
-    // check is login ?
-    if (!req.session.islogin) {
-        res.writeHead(302, {
-            'Location': '/login'
-        });
-        res.end();
-
-    } else {
-        // check path and set default tab
-        if (req.query.path === undefined) {
-            var chossedPath = '/';
-        } else {
-            var chossedPath = req.query.path;
-        }
-        // send json header
-        res.writeHead(200, {
-            'Content-Type': 'application/json'
-        });
-
-        // check choosed is exists
-        if (fs.existsSync(chossedPath)) {
-            // read folder
-            fs.readdir(chossedPath, (err, files) => {
-
-                // creat list
-                var lst = [];
-                chossedPath = chossedPath + '/';
-                chossedPath = chossedPath.replace('//', '/');
-                // set back folder in list
-                var e = path.join(chossedPath, '..');
-                lst.push({'name': '..', 'path': e});
-                files.forEach(file => {
-                    var tmp = {'name': file, 'path': chossedPath + file};
-                    lst.push(tmp);
-                });
-                // send buffer
-                res.write(JSON.stringify(lst));
-                res.end();
-            });
-
-        } else {
-
-            res.write('[]');
-            res.end();
-
-        }
-    }
-
-});
-
-
 
 app.get('/logout', function (req, res) {
-
-    // remover session
-    delete req.session.islogin;
-    // redirect to login page
-    res.writeHead(302, {
-        'Location': '/login'
-    });
-    res.end();
-});
-
-
-
-
-app.get('/log', function (req, res) {
-    // send json header
-    if (!req.session.islogin) {
-        res.writeHead(302, {
-            'Location': '/login'
-        });
-        res.end();
-
-    } else {
-        // check id exits
-        if (req.query.id) {
-            // log of the process
-            var proc = require('child_process').spawn("pm2", ['log', req.query.id]);
-
-            req.session.notication = '';
-            proc.stdout.on('data', (data) => {
-                req.session.notication = req.session.notication + data;
-            });
-
-            setTimeout(function () {
-                proc.stdin.end();
-                res.writeHead(302, {
-                    'Location': '/'
-                });
-                res.end();
-            }, 500);
-
-        }
-
+    req.session.destroy();
+    if (req.xhr || req.headers.accept?.indexOf('json') > -1) {
+        return res.json({ success: true });
     }
+    res.redirect('/');
 });
 
+app.get('/log', requireAuth, function (req, res) {
+    if (!req.query.id) {
+        return res.status(400).json({ error: 'ID is required' });
+    }
+
+    exec("pm2 log " + req.query.id + " --lines 100 --nostream", (error, stdout, stderr) => {
+        if (error) {
+            return res.send(stderr || error.message);
+        }
+        res.send(stdout);
+    });
+});
 
 //##############################################################################
-//                              finazle
+//                              finalize
 //##############################################################################
 
 app.listen(PORT, function () {
