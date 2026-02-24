@@ -8,8 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 </head>
-<body class="min-h-screen bg-base-200">
-    <div id="app">
+<body class="min-h-screen bg-base-200 flex flex-col">
+    <div id="app" class="flex-1">
         <div class="drawer drawer-end">
             <input id="add-drawer" type="checkbox" class="drawer-toggle" v-model="showAddDrawer" />
             <div class="drawer-content">
@@ -702,12 +702,8 @@
     }).mount('#app');
     </script>
 
-    <footer class="footer footer-center p-4 text-base-content opacity-60 text-sm absolute bottom-0 w-full">
-        <div>
-            <a href="https://github.com/4xmen/pm2panel" target="_blank">PM2 Panel</a>
-            <span>·</span>
-            <span>Fork with ❤️</span>
-        </div>
+    <footer class="text-center p-4 text-base-content opacity-60 text-sm mt-auto">
+        <a href="https://github.com/4xmen/pm2panel" target="_blank">PM2 Panel</a> · Forked with ❤️
     </footer>
 </body>
 </html>
