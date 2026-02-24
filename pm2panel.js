@@ -29,6 +29,7 @@ app.use(session({
 }));
 
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
+app.use(express.static(path.join(__dirname, 'www')));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
