@@ -89,32 +89,54 @@ createApp({
             }
         };
 
-        const fetchData = async (silent = false) => {
-            if (!isLoggedIn.value) {
-                if (!silent) loading.value = false;
-                return;
-            }
-            
-            if (!silent) loading.value = true;
-            try {
-                const res = await fetch('/getProccess');
-                if (!res.ok) {
-                    if (res.status === 401 || res.status === 302) {
-                        isLoggedIn.value = false;
-                        showLoginModal.value = true;
-                    }
-                    return;
+        const fetchProcessList = async () => {
+            const res = await fetch('/getProccess');
+            if (!res.ok) {
+                if (res.status === 401 || res.status === 302) {
+                    throw new Error('unauthorized');
                 }
-                const data = await res.json();
+                throw new Error('Failed to fetch');
+            }
+            return await res.json();
+        };
+
+        const fetchData = async () => {
+            if (!isLoggedIn.value) return;
+            
+            processes.value = [];
+            loading.value = true;
+            
+            try {
+                const data = await fetchProcessList();
                 if (Array.isArray(data)) {
                     processes.value = data;
                     now.value = Date.now();
                     updateMetricsHistory(data);
                 }
             } catch (e) {
-                if (!silent) showToast('Failed to fetch processes: ' + e.message, 'error');
+                if (e.message === 'unauthorized') {
+                    isLoggedIn.value = false;
+                    showLoginModal.value = true;
+                } else {
+                    showToast('Failed to fetch processes: ' + e.message, 'error');
+                }
             } finally {
-                if (!silent) loading.value = false;
+                loading.value = false;
+            }
+        };
+
+        const refreshData = async () => {
+            if (!isLoggedIn.value) return;
+            
+            try {
+                const data = await fetchProcessList();
+                if (Array.isArray(data)) {
+                    processes.value = data;
+                    now.value = Date.now();
+                    updateMetricsHistory(data);
+                }
+            } catch (e) {
+                console.error('Failed to refresh:', e);
             }
         };
 
@@ -162,7 +184,7 @@ createApp({
             if (pollTimer) clearInterval(pollTimer);
             pollTimer = null;
             if (pollEnabled.value && pollInterval.value >= 1) {
-                pollTimer = setInterval(() => fetchData(true), pollInterval.value * 1000);
+                pollTimer = setInterval(refreshData, pollInterval.value * 1000);
             }
         };
 
@@ -223,7 +245,7 @@ createApp({
                 const res = await fetch(`/${action}?id=${id}`);
                 const text = await res.text();
                 showToast(`${action} command sent`, 'success');
-                setTimeout(() => fetchData(true), 500);
+                setTimeout(refreshData, 500);
             } catch (e) {
                 showToast(`Failed to ${action}: ${e.message}`, 'error');
             }
@@ -259,7 +281,7 @@ createApp({
                     showToast('Process added successfully', 'success');
                     choosedPath.value = '';
                     showAddDrawer.value = false;
-                    setTimeout(fetchData, 500);
+                    setTimeout(refreshData, 500);
                 }
             } catch (e) {
                 showToast('Failed to add process: ' + e.message, 'error');
@@ -376,6 +398,7 @@ createApp({
             sortOrder,
             sortBy,
             fetchData,
+            refreshData,
             fetchFolders,
             login,
             logout,
