@@ -238,6 +238,8 @@ createApp({
             await fetch('/logout');
             isLoggedIn.value = false;
             processes.value = [];
+            showLoginModal.value = true;
+            loginError.value = '';
         };
 
         const executeAction = async (action, id) => {

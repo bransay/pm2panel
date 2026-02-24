@@ -38,16 +38,20 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                             </svg>
                         </button>
-                        <div class="dropdown dropdown-end">
+                        <div class="dropdown dropdown-end" v-if="isLoggedIn">
                             <label tabindex="0" class="btn btn-ghost btn-circle avatar placeholder">
                                 <div class="bg-neutral text-neutral-content rounded-full w-8 sm:w-10">
                                     <span class="text-lg sm:text-xl">A</span>
                                 </div>
                             </label>
                             <ul tabindex="0" class="menu menu-sm dropdown-content mt-3 z-50 p-2 shadow bg-base-100 rounded-box w-52">
-                                <li><a @click="showLoginModal = true; loginError = ''" v-if="!isLoggedIn">Login</a></li>
-                                <li><a @click="logout" v-if="isLoggedIn">Logout</a></li>
+                                <li><a @click="logout">Logout</a></li>
                             </ul>
+                        </div>
+                        <div v-else class="btn btn-ghost btn-circle avatar placeholder pointer-events-none">
+                            <div class="bg-neutral text-neutral-content rounded-full w-8 sm:w-10">
+                                <span class="text-lg sm:text-xl">A</span>
+                            </div>
                         </div>
                     </div>
                 </div>
