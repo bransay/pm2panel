@@ -44,7 +44,7 @@ function requireAuth(req, res, next) {
     if (req.xhr || req.headers.accept?.indexOf('json') > -1 || req.path.startsWith('/api')) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
-    res.redirect('/login');
+    res.redirect('/');
 }
 
 //##############################################################################
@@ -52,18 +52,11 @@ function requireAuth(req, res, next) {
 //##############################################################################
 
 app.get('/', function (req, res) {
-    if (req.session.islogin) {
-        res.sendFile(path.join(__dirname, 'www/index.html'));
-    } else {
-        res.redirect('/login');
-    }
+    res.sendFile(path.join(__dirname, 'www/index.html'));
 });
 
 app.get('/login', function (req, res) {
-    if (req.session.islogin) {
-        return res.redirect('/');
-    }
-    res.sendFile(path.join(__dirname, 'www/login.html'));
+    res.redirect('/');
 });
 
 app.post('/loginCheck', function (req, res) {
@@ -84,7 +77,7 @@ app.post('/loginCheck', function (req, res) {
         if (req.xhr || req.headers.accept?.indexOf('json') > -1) {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
-        res.redirect('/login?err=invalid_credentials');
+        res.redirect('/');
     };
 
     if (PAM_AUTH) {
@@ -252,7 +245,7 @@ app.get('/logout', function (req, res) {
     if (req.xhr || req.headers.accept?.indexOf('json') > -1) {
         return res.json({ success: true });
     }
-    res.redirect('/login');
+    res.redirect('/');
 });
 
 app.get('/log', requireAuth, function (req, res) {
