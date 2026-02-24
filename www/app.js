@@ -321,6 +321,7 @@ createApp({
         };
 
         let resizeObserver = null;
+        let dropdownCloser = null;
 
         onMounted(async () => {
             await checkAuth();
@@ -335,11 +336,18 @@ createApp({
             if (containerRef.value) {
                 resizeObserver.observe(containerRef.value);
             }
+            dropdownCloser = (e) => {
+                if (e.target.closest('.dropdown-content')) {
+                    document.activeElement?.blur();
+                }
+            };
+            document.addEventListener('click', dropdownCloser);
         });
 
         onUnmounted(() => {
             if (pollTimer) clearInterval(pollTimer);
             if (resizeObserver) resizeObserver.disconnect();
+            if (dropdownCloser) document.removeEventListener('click', dropdownCloser);
         });
 
         return {
