@@ -7,6 +7,10 @@
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <style>
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+    </style>
 </head>
 <body class="min-h-screen bg-base-200 flex flex-col">
     <div id="app" class="flex-1">
@@ -44,7 +48,7 @@
                                 </div>
                             </label>
                             <ul tabindex="0" class="menu menu-sm dropdown-content mt-3 z-50 p-2 shadow bg-base-100 rounded-box w-52">
-                                <li><a @click="showLoginModal = true" v-if="!isLoggedIn">Login</a></li>
+                                <li><a @click="showLoginModal = true; loginError = ''" v-if="!isLoggedIn">Login</a></li>
                                 <li><a @click="logout" v-if="isLoggedIn">Logout</a></li>
                             </ul>
                         </div>
@@ -272,7 +276,6 @@
 
         <dialog id="login_modal" class="modal" :class="{'modal-open': showLoginModal}">
             <div class="modal-box">
-                <h3 class="font-bold text-lg mb-4">Login to PM2 Panel</h3>
                 <form @submit.prevent="login">
                     <div class="form-control w-full">
                         <label class="label"><span class="label-text">Username</span></label>
@@ -288,11 +291,13 @@
                             <span class="label-text">Remember me</span>
                         </label>
                     </div>
-                    <div class="modal-action">
-                        <button type="button" class="btn btn-ghost" @click="showLoginModal = false">Cancel</button>
+                    <Transition name="fade">
+                        <p v-if="loginError" class="text-error text-sm mt-2">{{ loginError }}</p>
+                    </Transition>
+                    <div class="form-control mt-4">
                         <button type="submit" class="btn btn-primary" :disabled="loginLoading">
                             <span v-if="loginLoading" class="loading loading-spinner loading-xs"></span>
-                            Login
+                            <span v-else>Login</span>
                         </button>
                     </div>
                 </form>
@@ -345,6 +350,7 @@
             const logsContent = ref('');
             const logsProcessName = ref('');
             const loginLoading = ref(false);
+            const loginError = ref('');
             const toasts = ref([]);
             const pollEnabled = ref(true);
             const pollInterval = ref(3);
@@ -505,10 +511,14 @@
 
             const login = async () => {
                 loginLoading.value = true;
+                loginError.value = '';
                 try {
                     const res = await fetch('/loginCheck', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        headers: { 
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'Accept': 'application/json'
+                        },
                         body: new URLSearchParams({
                             username: loginForm.value.username,
                             passwd: loginForm.value.password,
@@ -522,10 +532,10 @@
                         fetchData();
                         fetchFolders();
                     } else {
-                        showToast('Invalid credentials', 'error');
+                        loginError.value = 'Invalid credentials';
                     }
                 } catch (e) {
-                    showToast('Login failed: ' + e.message, 'error');
+                    loginError.value = 'Login failed: ' + e.message;
                 } finally {
                     loginLoading.value = false;
                 }
@@ -677,6 +687,7 @@
                 logsContent,
                 logsProcessName,
                 loginLoading,
+                loginError,
                 loginForm,
                 toasts,
                 pollEnabled,
