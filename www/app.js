@@ -223,7 +223,7 @@ createApp({
                 const res = await fetch(`/${action}?id=${id}`);
                 const text = await res.text();
                 showToast(`${action} command sent`, 'success');
-                setTimeout(fetchData, 500);
+                setTimeout(() => fetchData(true), 500);
             } catch (e) {
                 showToast(`Failed to ${action}: ${e.message}`, 'error');
             }
